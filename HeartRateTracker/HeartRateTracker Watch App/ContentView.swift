@@ -39,12 +39,10 @@ struct ContentView: View {
                 
                 // Start/Stop Button
                 Button(action: {
-                    Task {
-                        if workoutManager.isWorkoutActive {
-                            await workoutManager.stopWorkout()
-                        } else {
-                            await workoutManager.startWorkout()
-                        }
+                    if workoutManager.isWorkoutActive {
+                        workoutManager.stopWorkout()
+                    } else {
+                        workoutManager.startWorkout()
                     }
                 }) {
                     Text(workoutManager.isWorkoutActive ? "Stop" : "Start")
@@ -64,8 +62,8 @@ struct ContentView: View {
             }
             .padding()
         }
-        .task {
-            await workoutManager.requestAuthorization()
+        .onAppear {
+            workoutManager.requestAuthorization()
         }
     }
 }

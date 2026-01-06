@@ -2,7 +2,6 @@ import Foundation
 import HealthKit
 import WatchKit
 
-@MainActor
 class WorkoutManager: NSObject, ObservableObject {
     
     @Published var heartRate: Double = 0
@@ -19,7 +18,6 @@ class WorkoutManager: NSObject, ObservableObject {
     private var heartRateQuery: HKAnchoredObjectQuery?
     private var sessionId: String = ""
     private let deviceId: String
-    private let apiService = APIService()
     
     override init() {
         if let id = UserDefaults.standard.string(forKey: "deviceId") {
@@ -32,9 +30,11 @@ class WorkoutManager: NSObject, ObservableObject {
         super.init()
     }
     
-    func requestAuthorization() async {
+    func requestAuthorization() {
         guard HKHealthStore.isHealthDataAvailable() else {
-            errorMessage = "HealthKit not available"
+            DispatchQueue.main.async {
+                self.errorMessage = "HealthKit not available"
+            }
             return
         }
         
@@ -48,22 +48,33 @@ class WorkoutManager: NSObject, ObservableObject {
             HKObjectType.workoutType()
         ]
         
-        do {
-            try await healthStore.requestAuthorization(toShare: writeTypes, read: types)
-            isAuthorized = true
-            statusMessage = "Ready to start"
-        } catch {
-            errorMessage = "Authorization failed"
-            isAuthorized = false
+        healthStore.requestAuthorization(toShare: writeTypes, read: types) { [weak self] success, error in
+            DispatchQueue.main.async {
+                if success {
+                    self?.isAuthorized = true
+                    self?.statusMessage = "Ready to start"
+                } else {
+                    self?.errorMessage = "Authorization failed"
+                    self?.isAuthorized = false
+                }
+            }
         }
     }
     
-    func startWorkout() async {
+    func startWorkout() {
         if !isAuthorized {
-            await requestAuthorization()
-            if !isAuthorized { return }
+            requestAuthorization()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                if self?.isAuthorized == true {
+                    self?.beginWorkoutSession()
+                }
+            }
+            return
         }
-        
+        beginWorkoutSession()
+    }
+    
+    private func beginWorkoutSession() {
         sessionId = UUID().uuidString
         
         let config = HKWorkoutConfiguration()
@@ -80,35 +91,41 @@ class WorkoutManager: NSObject, ObservableObject {
             
             let startDate = Date()
             session?.startActivity(with: startDate)
-            try await builder?.beginCollection(at: startDate)
-            
-            startHeartRateQuery()
-            
-            isWorkoutActive = true
-            statusMessage = "Monitoring..."
-            successCount = 0
-            failCount = 0
+            builder?.beginCollection(withStart: startDate) { [weak self] success, error in
+                DispatchQueue.main.async {
+                    if success {
+                        self?.startHeartRateQuery()
+                        self?.isWorkoutActive = true
+                        self?.statusMessage = "Monitoring..."
+                        self?.successCount = 0
+                        self?.failCount = 0
+                    } else {
+                        self?.errorMessage = "Failed to start collection"
+                    }
+                }
+            }
         } catch {
-            errorMessage = "Failed to start: \(error.localizedDescription)"
+            DispatchQueue.main.async { [weak self] in
+                self?.errorMessage = "Failed to start: \(error.localizedDescription)"
+            }
         }
     }
     
-    func stopWorkout() async {
+    func stopWorkout() {
         stopHeartRateQuery()
         session?.end()
         
-        do {
-            try await builder?.endCollection(at: Date())
-            try await builder?.finishWorkout()
-        } catch {
-            errorMessage = "Failed to stop"
+        builder?.endCollection(withEnd: Date()) { [weak self] success, error in
+            self?.builder?.finishWorkout { workout, error in
+                DispatchQueue.main.async {
+                    self?.isWorkoutActive = false
+                    self?.statusMessage = "Stopped"
+                    self?.heartRate = 0
+                    self?.session = nil
+                    self?.builder = nil
+                }
+            }
         }
-        
-        isWorkoutActive = false
-        statusMessage = "Stopped"
-        heartRate = 0
-        session = nil
-        builder = nil
     }
     
     private func startHeartRateQuery() {
@@ -143,7 +160,7 @@ class WorkoutManager: NSObject, ObservableObject {
         }
     }
     
-    private nonisolated func processSamples(_ samples: [HKSample]?, deviceId: String, sessionId: String) {
+    private func processSamples(_ samples: [HKSample]?, deviceId: String, sessionId: String) {
         guard let samples = samples else { return }
         let quantitySamples = samples.compactMap { $0 as? HKQuantitySample }
         guard let sample = quantitySamples.last else { return }
@@ -151,34 +168,53 @@ class WorkoutManager: NSObject, ObservableObject {
         let unit = HKUnit.count().unitDivided(by: .minute())
         let value = sample.quantity.doubleValue(for: unit)
         
-        Task { @MainActor [weak self] in
-            guard let self = self else { return }
-            
-            let appState = WKApplication.shared().applicationState == .active ? "foreground" : "background"
-            self.heartRate = value
-            
-            let data = HeartRateData(
-                heartRate: value,
-                timestamp: ISO8601DateFormatter().string(from: Date()),
-                deviceId: deviceId,
-                sessionType: "monitoring",
-                appState: appState,
-                sessionId: sessionId
-            )
-            
-            let success = await self.apiService.send(data)
-            if success {
-                self.successCount += 1
-            } else {
-                self.failCount += 1
-            }
+        DispatchQueue.main.async { [weak self] in
+            self?.heartRate = value
+            self?.sendToAPI(heartRate: value, deviceId: deviceId, sessionId: sessionId)
         }
+    }
+    
+    private func sendToAPI(heartRate: Double, deviceId: String, sessionId: String) {
+        let appState = WKApplication.shared().applicationState == .active ? "foreground" : "background"
+        
+        let data = HeartRateData(
+            heartRate: heartRate,
+            timestamp: ISO8601DateFormatter().string(from: Date()),
+            deviceId: deviceId,
+            sessionType: "monitoring",
+            appState: appState,
+            sessionId: sessionId
+        )
+        
+        guard let url = URL(string: "https://applewatchtest.free.beeceptor.com/heartrate") else { return }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 10
+        
+        do {
+            request.httpBody = try JSONEncoder().encode(data)
+        } catch {
+            return
+        }
+        
+        URLSession.shared.dataTask(with: request) { [weak self] _, response, error in
+            DispatchQueue.main.async {
+                if let httpResponse = response as? HTTPURLResponse,
+                   (200...299).contains(httpResponse.statusCode) {
+                    self?.successCount += 1
+                } else {
+                    self?.failCount += 1
+                }
+            }
+        }.resume()
     }
 }
 
 extension WorkoutManager: HKWorkoutSessionDelegate {
-    nonisolated func workoutSession(_ workoutSession: HKWorkoutSession, didChangeTo toState: HKWorkoutSessionState, from fromState: HKWorkoutSessionState, date: Date) {
-        Task { @MainActor [weak self] in
+    func workoutSession(_ workoutSession: HKWorkoutSession, didChangeTo toState: HKWorkoutSessionState, from fromState: HKWorkoutSessionState, date: Date) {
+        DispatchQueue.main.async { [weak self] in
             switch toState {
             case .running: self?.statusMessage = "Active"
             case .ended: self?.isWorkoutActive = false
@@ -187,14 +223,14 @@ extension WorkoutManager: HKWorkoutSessionDelegate {
         }
     }
     
-    nonisolated func workoutSession(_ workoutSession: HKWorkoutSession, didFailWithError error: Error) {
-        Task { @MainActor [weak self] in
+    func workoutSession(_ workoutSession: HKWorkoutSession, didFailWithError error: Error) {
+        DispatchQueue.main.async { [weak self] in
             self?.errorMessage = error.localizedDescription
         }
     }
 }
 
 extension WorkoutManager: HKLiveWorkoutBuilderDelegate {
-    nonisolated func workoutBuilderDidCollectEvent(_ workoutBuilder: HKLiveWorkoutBuilder) {}
-    nonisolated func workoutBuilder(_ workoutBuilder: HKLiveWorkoutBuilder, didCollectDataOf collectedTypes: Set<HKSampleType>) {}
+    func workoutBuilderDidCollectEvent(_ workoutBuilder: HKLiveWorkoutBuilder) {}
+    func workoutBuilder(_ workoutBuilder: HKLiveWorkoutBuilder, didCollectDataOf collectedTypes: Set<HKSampleType>) {}
 }
