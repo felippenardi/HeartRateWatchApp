@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSHealthShareUsageDescription</key>
+	<string>This app needs access to read your heart rate data to monitor and send it to your API.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>This app needs access to record workout data for continuous heart rate monitoring.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>workout-processing</string>
+	</array>
+	<key>WKApplication</key>
+	<true/>
+	<key>WKRunsIndependentlyOfCompanionApp</key>
+	<true/>
+</dict>
+</plist>
