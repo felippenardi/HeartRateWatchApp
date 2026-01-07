@@ -12,6 +12,7 @@ class WorkoutManager: NSObject, ObservableObject {
     @Published var errorMessage: String?
     @Published var successCount: Int = 0
     @Published var failCount: Int = 0
+    @Published var reps: Int = 0
     
     private let healthStore = HKHealthStore()
     private var session: HKWorkoutSession?
@@ -184,7 +185,8 @@ class WorkoutManager: NSObject, ObservableObject {
             deviceId: deviceId,
             sessionType: "monitoring",
             appState: appState,
-            sessionId: sessionId
+            sessionId: sessionId,
+            reps: self.reps
         )
         
         guard let url = URL(string: "https://applewatchtest.free.beeceptor.com/heartrate") else { return }

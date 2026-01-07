@@ -9,21 +9,63 @@ struct ContentView: View {
                 // Heart Rate Display
                 VStack(spacing: 4) {
                     Image(systemName: "heart.fill")
-                        .font(.title)
+                        .font(.title3)
                         .foregroundColor(.red)
                     
                     Text(workoutManager.heartRate > 0 ? "\(Int(workoutManager.heartRate))" : "--")
-                        .font(.system(size: 48, weight: .bold, design: .rounded))
+                        .font(.system(size: 36, weight: .bold, design: .rounded))
                     
                     Text("BPM")
-                        .font(.caption)
+                        .font(.caption2)
                         .foregroundColor(.secondary)
                 }
-                .padding(.top, 8)
+                
+                // Rep Counter
+                VStack(spacing: 8) {
+                    Text("REPS")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    
+                    HStack(spacing: 16) {
+                        // Minus Button
+                        Button(action: {
+                            if workoutManager.reps > 0 {
+                                workoutManager.reps -= 1
+                            }
+                        }) {
+                            Image(systemName: "minus.circle.fill")
+                                .font(.title2)
+                                .foregroundColor(.orange)
+                        }
+                        .buttonStyle(.plain)
+                        .simultaneousGesture(
+                            LongPressGesture(minimumDuration: 0.5)
+                                .onEnded { _ in
+                                    workoutManager.reps = 0
+                                }
+                        )
+                        
+                        // Rep Count
+                        Text("\(workoutManager.reps)")
+                            .font(.system(size: 44, weight: .bold, design: .rounded))
+                            .frame(minWidth: 60)
+                        
+                        // Plus Button
+                        Button(action: {
+                            workoutManager.reps += 1
+                        }) {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.title2)
+                                .foregroundColor(.green)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, 4)
                 
                 // Status
                 Text(workoutManager.statusMessage)
-                    .font(.caption)
+                    .font(.caption2)
                     .foregroundColor(.secondary)
                 
                 // API Stats

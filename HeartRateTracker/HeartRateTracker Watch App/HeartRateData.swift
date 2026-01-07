@@ -7,6 +7,7 @@ struct HeartRateData: Codable {
     let sessionType: String
     let appState: String
     let sessionId: String
+    let reps: Int
     
     enum CodingKeys: String, CodingKey {
         case heartRate = "heart_rate"
@@ -15,5 +16,6 @@ struct HeartRateData: Codable {
         case sessionType = "session_type"
         case appState = "app_state"
         case sessionId = "session_id"
+        case reps
     }
 }
